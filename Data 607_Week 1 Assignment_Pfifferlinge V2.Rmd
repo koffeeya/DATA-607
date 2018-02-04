@@ -1,0 +1,52 @@
+---
+title: "Data 607_Week1 Assignment_Pfifferlinge"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load datasets from web to review and meet requirement that data be accessible through code
+##### As this dataset is not labeled set headers to FALSE
+##### Check what it looks like:
+```{r}
+browseURL("https://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.names")
+mushroom.master <- read.table("https://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.data", header = FALSE, sep = ",", stringsAsFactors = TRUE)
+str(mushroom.master)
+```
+
+### Add column headers
+##### Attributes are available in the browseURL page above, but parsing just the pertinent tricky so in the interim manually create header vector
+```{r}
+# library(XML)
+# dimensions.html = htmlTreeParse("https://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.names")
+colnames(mushroom.master) <- c("class", "cap.shape", "cap.surface", "cap.color", "bruises", "odor", "gill.attachment", "gill.spacing", "gill.size", "gill.color", "stalk.shape", "stalk.root", "stalk.surface.above.ring", "stalk.surface.below.ring", "stalk.color.above.ring", "stalk.color.below.ring", "veil.type", "veil.color", "ring.number", "ring.type", "spore.print.color", "population", "habitat")
+str(mushroom.master)
+```
+
+### Subset data
+##### Cut prior to relabeling values for efficiency
+```{r}
+mushroom.subset.variables <- c("class", "cap.shape", "cap.color", "odor", "gill.size", "spore.print.color", "habitat") 
+mushroom.subset <- mushroom.master[mushroom.subset.variables]
+str(mushroom.subset)
+```
+
+### Rename values of subset
+##### Must be more efficient operation to implement this (presumably by reading directly from the browseURL page)
+```{r}
+levels(mushroom.subset$class) <- c("e"="edible", "p"="poisonous")
+levels(mushroom.subset$cap.shape) <- c("b"="bell", "c"="conical", "x"="convex", "f"="flat", "k"="knobbed", "s"="sunken")
+levels(mushroom.subset$cap.color) <- c("n"="brown", "b"="buff", "c"="cinnamon", "g"="gray", "r"="green", "p"="pink", "u"="purple", "e"="red", "w"="white", "y"="yellow")
+levels(mushroom.subset$odor) <- c("a"="almond", "l"="anise", "c"="creosote", "y"="fishy", "f"="foul", "m"="musty", "n"="none", "p"="pungent", "s"="spicy")
+levels(mushroom.subset$gill.size) <- c("b"="broad", "n"="narrow")
+levels(mushroom.subset$spore.print.color) <- c("k"="black", "n"="brown", "b"="buff", "h"="chocolate", "r"="green", "o"="orange", "u"="purple", "w"="white", "y"="yellow")
+levels(mushroom.subset$habitat) <- c("g"="grasses", "l"="leaves", "m"="meadows", "p"="paths", "u"="urban", "w"="waste", "d"="woods")
+str(mushroom.subset)
+```
+
+### Voila!
+```{r}
+head(mushroom.subset, 20)
+```
