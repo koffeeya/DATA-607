@@ -1,0 +1,171 @@
+---
+title: "Data 607_Week 2 Assignment_Films"
+author: "Jeremy"
+date: "February 10, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Cue up libraries
+
+```{r}
+# install.packages("RMySQL")
+library(RMySQL)
+library(dplyr)
+library(stringr)
+```
+
+
+### Connect to MySQL database
+
+```{r}
+# Pass the magic words to the connector function
+dbname <- "data607_week2_films"
+dbuser <- "root"
+dbpass <- "pass8"
+dbhost <- "localhost"
+con <- dbConnect(RMySQL::MySQL(),
+                  user = dbuser,
+                  password = dbpass,
+                  host = dbhost,
+                  dbname = dbname
+                  )
+# Check the connection
+summary(con)
+dbGetInfo(con)
+```
+
+
+### Check MySQL tables, fields therein - confirm we're in business
+
+```{r}
+dbListTables(con)
+dbListFields(con, "films")
+dbListFields(con, "Reviewers")
+dbListFields(con, "Ratings")
+```
+
+
+### Read MySQL tables into R
+
+```{r}
+# Read MySQL tables into R
+Films <- dbReadTable(con, "films")
+Ratings <- dbReadTable(con, "ratings")
+Reviewers <- dbReadTable(con, "reviewers")
+# Factorize ratings so they read as ordinal variable
+Ratings$Rating <- as.factor(Ratings$Rating)
+# Create a title key
+TitleKey <- c(Films[,2])
+# Check out the three data frames
+str(Films)
+str(Reviewers)
+str(Ratings)
+```
+
+
+### Combine ratings into scores using SQL
+
+```{r}
+# Pull in average score by title and calculate number of reviews received for context
+sql_1 <- "SELECT	F.Title AS FilmTitle, AVG(RA.Rating) AS AvgScore, COUNT(RA.Rating) AS TotalReviews
+          FROM Films AS F
+          INNER JOIN Ratings AS RA
+          ON F.FilmID = RA.FilmID
+          GROUP BY FilmTitle
+          ORDER BY AvgScore DESC; "
+ScoresSQL <- dbGetQuery(con, sql_1)
+ScoresSQL
+```
+
+
+### Examine dispersion of ratings for each film using SQL
+
+```{r}
+# Pull in all ratings by title and look at distribution
+sql_2 <- "SELECT 	F.Title AS FilmTitle, RA.Rating AS Rating
+          FROM Films AS F
+          INNER JOIN Ratings AS RA
+          ON RA.FilmID = F.FilmID
+          ORDER BY FilmTitle; "
+RatingsbyTitle <- dbGetQuery(con, sql_2)
+# Take a peek at the distribution - trying out a stripchart to change things up
+par(las=3,
+    cex.main=1,
+    cex.lab=0.5,
+    font.lab=2,
+    cex.axis=0.45,
+    font.axis=2,
+    col.axis="grey50")
+stripchart(Rating ~ FilmTitle, 
+           data = RatingsbyTitle, 
+           vertical=TRUE, 
+           method = "stack", 
+           offset=0.8, 
+           pch=19, 
+           main = "Score Dispersion by Film",
+           ylab = "")
+```
+
+
+### Rank films by total reviews using SQL
+
+```{r}
+# Pull in all number fo reviews by title and rank to discern viewership
+sql_3 <- "SELECT 	F.Title AS FilmTitle, COUNT(RA.Rating) AS TotalReviews
+          FROM Films AS F
+          INNER JOIN Ratings AS RA
+          ON F.FilmID = RA.FilmID
+          INNER JOIN Reviewers AS RE
+          ON RE.ReviewerID = RA.ReviewerID
+          GROUP BY F.Title
+          ORDER BY TotalReviews DESC; "
+RankByReviewCountSQL <- dbGetQuery(con, sql_3)
+RankByReviewCountSQL
+```
+
+
+### Examine ratings by Reviewer
+
+```{r}
+sql_4 <- "SELECT RE.FirstName AS Reviewer, COUNT(RA.Rating) AS FilmsReviewed, AVG(RA.Rating) AS AvgScore
+          FROM Ratings AS RA
+          INNER JOIN Reviewers AS RE
+          ON RE.ReviewerID = RA.ReviewerID
+          GROUP BY Reviewer
+          ORDER BY FilmsReviewed DESC; "
+RatingByReviewerSQL <- dbGetQuery(con, sql_4)
+# Clean up SQL line terminating /r cruft
+RatingByReviewerSQL$Reviewer <- str_sub(RatingByReviewerSQL$Reviewer, 1, str_length(RatingByReviewerSQL$Reviewer)-2)
+RatingByReviewerSQL
+```
+
+
+### Visualize whether people who review more rate films higher / lower
+
+```{r}
+par(las=1,
+    cex.main=1,
+    cex.lab=0.75,
+    font.lab=2,
+    cex.axis=0.75,
+    font.axis=2,
+    col.axis="grey50")
+plot(RatingByReviewerSQL$FilmsReviewed, 
+     RatingByReviewerSQL$AvgScore,
+     main = "Relationship Between Films Reviewed and Scores Given",
+     xlab = "Films Reviewed",
+     ylab = "Average Score", 
+     xlim = c(1,8), 
+     ylim = c(1,5))
+xaxis <- seq(1, 5, by = 1)
+yaxis <- seq(1, 8, by = 1)
+axis(1, at = xaxis)
+axis(2, at = yaxis)
+# Doesn't look like there's any association
+``` 
+
