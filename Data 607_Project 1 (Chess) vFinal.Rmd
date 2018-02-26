@@ -1,0 +1,228 @@
+---
+title: "Data 607_Project 1 (Chess)"
+author: "Jeremy"
+date: "February 19, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Prepare some libraries and set the working directory.
+```{r}
+library(stringr)
+library(plyr)
+working.dir <- "G:/OneDrive/Learning/_CUNY_SPS_MSDS/2018_Spring/DATA 607/Projects/Project 1"
+setwd(working.dir)
+```
+
+#### Get the data in a table
+```{r}
+# Import data from text file.
+chess.sourcefile <- paste0(working.dir, "/tournamentinfo.txt")
+```
+
+#### Produce data table header. Tried scan(), but changed to read.table delimited by "|", and then concatenated the two rows horizontally using cbind. 
+```{r}
+header.rt <- read.table(chess.sourcefile, sep = "|", fill = T, nrows = 3, stringsAsFactors = F)
+# Grab rows 2 and 3.
+header1 <- header.rt[2,] 
+header2 <- header.rt[3,]
+header.comb <- cbind(header1, header2)
+# Clean up residual objects.
+header.rt <- NULL
+header1 <- NULL
+header2 <- NULL
+```
+
+#### Cleaned up the header using str_trim, removing residual whitespace on both ends of all strings.
+```{r}
+header.clean <- str_trim(header.comb)
+# Clean up residual objects.
+header.comb <- NULL
+```
+
+#### Renamed row values, which will serve as column headers when combined.  Originally tried this at later a step, but it proved confusing when organizing columnar vectors and operations thereupon.
+```{r}
+header.clean[1:3] <- c("Pairing Number", "Player\'s Name", "Tourney Points")
+header.clean[4:10] <- c("Rnd1", "Rnd2", "Rnd3", "Rnd4", "Rnd5", "Rnd6", "Rnd7")
+header.clean[12] <- c("Player's State")
+header.clean[14:21] <- c("N:Value", "Rnd1 Outcome", "Rnd2 Outcome", "Rnd3 Outcome", "Rnd4 Outcome", "Rnd5 Outcome", "Rnd6 Outcome", "Rnd7 Outcome")
+```
+
+#### Extract table body from text file using read-table delimited by "|".  Just like for the header.
+```{r}
+chess.source <- read.table(chess.sourcefile, sep = "|", fill = T, skip = 4, header = F, stringsAsFactors = F)
+```
+
+#### Produce one row per competitor.  Subset the table, which as read is a blank row followed by two separate rows which pertain to each competitor.  Remove the blank rows, and concatenate the remaining rows horizontally using cbind.
+```{r}
+# Get count of rows for subsetting.
+source.rows <- nrow(chess.source)
+# Remove blank rows and concatenate the remaining by competitor.
+seq1 <- seq(1, as.integer(source.rows), 3)
+seq2 <- seq(2, as.integer(source.rows), 3)
+row1 <- chess.source[seq1,]
+row2 <- chess.source[seq2,]
+chess.comb <- cbind(row1, row2)
+# Clean up residual objects.
+seq1 <- NULL
+seq2 <- NULL
+row1 <- NULL
+row2 <- NULL
+```
+
+#### Append column headers to the table body.  Rbind the header atop the body, set the resulting first row as colnames, then eliminate the first row and wipe the temp table.  Attempted a more direct approach setting header.clean as colnames for chess.master, but troubleshooting proved fruitless.
+```{r}
+chess.master <- rbind(header.clean, chess.comb)
+# Create a temp file to prep the header names and read them in to the master table.
+chess.master.temp <- chess.master
+chess.master.temp[] <- lapply(chess.master, as.character)
+colnames(chess.master) <- chess.master.temp[1,]
+# Eliminate the first row and temp table.
+chess.master <- chess.master[-1,]
+chess.master.temp <- NULL
+```
+
+#### Clean up the table.  Assign data types and trim leading / trailing white space within column values.  NB: the outcome refers to how the competitor won, lost, or drew (i.e. received a bye, won the match, etc.) - this is treated separately from whether they won, lost, or drew, which is reflected in a column to be created.
+```{r}
+# Would like to learn how to employ a for-loop here - there's no way this code is efficient.
+chess.master$`Pairing Number`<- as.integer(str_trim(chess.master$`Pairing Number`))
+chess.master$`Player's Name` <- str_trim(chess.master$`Player's Name`)
+chess.master$`Tourney Points` <- as.numeric(chess.master$`Tourney Points`)
+chess.master$`Player's State` <- str_trim(chess.master$`Player's State`)
+chess.master$`Rnd1 Outcome` <- str_trim(chess.master$`Rnd1 Outcome`)
+chess.master$`Rnd2 Outcome` <- str_trim(chess.master$`Rnd2 Outcome`)
+chess.master$`Rnd3 Outcome` <- str_trim(chess.master$`Rnd3 Outcome`)
+chess.master$`Rnd4 Outcome` <- str_trim(chess.master$`Rnd4 Outcome`)
+chess.master$`Rnd5 Outcome` <- str_trim(chess.master$`Rnd5 Outcome`)
+chess.master$`Rnd6 Outcome` <- str_trim(chess.master$`Rnd6 Outcome`)
+chess.master$`Rnd7 Outcome` <- str_trim(chess.master$`Rnd7 Outcome`)
+```
+
+#### Column 13 contains three data points: the player's lifetime points, their pre-tourney rating, and their post-tourney rating.  Use regular expressions to parse these values and read them into three separate, labelled columns.
+```{r}
+# Extract column 13 from chess.master.
+chess.ptrt.orig <- chess.master[,13]
+# Extract data points, ensuring that every competitor receives a value for each (i.e. the new vectors line up cleanly with chess.master table row order).
+chess.points <- unlist(str_extract_all(chess.ptrt.orig, "(?<=\\s)[0-9]+(?=\\s/)"))
+chess.prertg <- unlist(str_extract_all(chess.ptrt.orig, "(?<=:\\s|\\s{2})[0-9]{3,4}"))
+chess.pstrtg <- unlist(str_extract_all(chess.ptrt.orig, "(?<=>|>\\s)[0-9]{3,4}"))
+# Append the columnar vectors back to the table as new separate columns.
+chess.master <- cbind(chess.master, 
+                      chess.points, 
+                      chess.prertg, 
+                      chess.pstrtg)
+# Label the new columns.
+colnames(chess.master)[23] <- "Lifetime Points"
+colnames(chess.master)[24] <- "Player\'s Pre-Tourney Rating"
+colnames(chess.master)[25] <- "Player\'s Post-Tourney Rating"
+```
+
+#### Columns 4 through 10 contain several data points: the player's opponent in a given numbered round and the result of that round.  Use regular expressions to parse these values and read them into two separate, labelled columns for each round.  NB: the result of the round indicates whether the competitor won, lost, of drew; the outcome refers to how the competitor won, lost, or drew (i.e. received a bye, won the match, etc.).
+```{r}
+# Would like to learn how to employ a for-loop here - there's no way this code is efficient.
+# Extract columns 4 through 10 from chess.master. 
+chess.rnd.orig <- chess.master[4:10]
+# Extract data points, ensuring that every competitor receives a value for each (i.e. the new vectors line up cleanly with chess.master table row order).
+chess.rnd1.opponent <- unlist(str_extract_all(chess.rnd.orig[,1], "\\d+|\\s$"))
+chess.rnd1.result <- unlist(str_extract_all(chess.rnd.orig[,1], "^[[:upper:]]"))
+chess.rnd2.opponent <- unlist(str_extract_all(chess.rnd.orig[,2], "\\d+|\\s$"))
+chess.rnd2.result <- unlist(str_extract_all(chess.rnd.orig[,2], "^[[:upper:]]"))
+chess.rnd3.opponent <- unlist(str_extract_all(chess.rnd.orig[,3], "\\d+|\\s$"))
+chess.rnd3.result <- unlist(str_extract_all(chess.rnd.orig[,3], "^[[:upper:]]"))
+chess.rnd4.opponent <- unlist(str_extract_all(chess.rnd.orig[,4], "\\d+|\\s$"))
+chess.rnd4.result <- unlist(str_extract_all(chess.rnd.orig[,4], "^[[:upper:]]"))
+chess.rnd5.opponent <- unlist(str_extract_all(chess.rnd.orig[,5], "\\d+|\\s$"))
+chess.rnd5.result <- unlist(str_extract_all(chess.rnd.orig[,5], "^[[:upper:]]"))
+chess.rnd6.opponent <- unlist(str_extract_all(chess.rnd.orig[,6], "\\d+|\\s$"))
+chess.rnd6.result <- unlist(str_extract_all(chess.rnd.orig[,6], "^[[:upper:]]"))
+chess.rnd7.opponent <- unlist(str_extract_all(chess.rnd.orig[,7], "\\d+|\\s$"))
+chess.rnd7.result <- unlist(str_extract_all(chess.rnd.orig[,7], "^[[:upper:]]"))
+# Append the columnar vectors back to the table as new separate columns: seven identifying the opponent in each round, seven identifying whether the result of the round (win, lose, draw)
+chess.master <- cbind(chess.master, 
+                      chess.rnd1.result, 
+                      chess.rnd2.result, 
+                      chess.rnd3.result, 
+                      chess.rnd4.result, 
+                      chess.rnd5.result, 
+                      chess.rnd6.result, 
+                      chess.rnd7.result, 
+                      chess.rnd1.opponent, 
+                      chess.rnd2.opponent, 
+                      chess.rnd3.opponent, 
+                      chess.rnd4.opponent, 
+                      chess.rnd5.opponent, 
+                      chess.rnd6.opponent, 
+                      chess.rnd7.opponent)
+# Label the new columns.
+colnames(chess.master)[26:32] <- c("Rnd1 Result",
+                                   "Rnd2 Result",
+                                   "Rnd3 Result",
+                                   "Rnd4 Result",
+                                   "Rnd5 Result",
+                                   "Rnd6 Result",
+                                   "Rnd7 Result")
+colnames(chess.master)[33:39] <- c("Rnd1 Opponent",
+                                   "Rnd2 Opponent",
+                                   "Rnd3 Opponent",
+                                   "Rnd4 Opponent",
+                                   "Rnd5 Opponent",
+                                   "Rnd6 Opponent",
+                                   "Rnd7 Opponent")
+```
+
+#### In order to calculate the average pre-tourney raiting for opponents for each competitor, we'll need to determine in how many rounds competitors competed, and the ranking of each of those opponents.  Vectorizing these rows proved a challenge.  I attempted the apply class of functions to most underwhelming effect and eventually discontinued that approach to avoid impending self-harm.  Fell back on trying to call the opponent rating corresponding to opponent pairing number for each  round but couldn't troubleshoot the syntax satisfactorily.
+```{r}
+# The aim is to extract opponents for each round and then look up their ratings.  I could not get plyr or for-loops to play nice, and fell back on the approach below, which still did not work.  The R_0 vector isn't getting correctly called for the R_R vector below, and the resulting player ratings are based on opponent pairing numbers not pre-tourney ratings.  Sigh...
+# Would like to learn how to employ a for-loop here - there's no way this code is efficient.
+R1O <- (chess.master$`Rnd1 Opponent`)
+R1R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R1O])
+R2O <- (chess.master$`Rnd2 Opponent`)
+R2R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R2O])
+R3O <- (chess.master$`Rnd3 Opponent`)
+R3R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R3O])
+R4O <- (chess.master$`Rnd4 Opponent`)
+R4R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R4O])
+R5O <- (chess.master$`Rnd5 Opponent`)
+R5R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R5O])
+R6O <- (chess.master$`Rnd6 Opponent`)
+R6R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R6O])
+R7O <- (chess.master$`Rnd7 Opponent`)
+R7R <- as.integer(chess.master$`Player's Pre-Tourney Rating`[R7O])
+# Collect the opponents ratings and sum them across rounds (i.e. by rows).  This will serve as the numerator when calculating average opponent rating.
+opponents.ratings <- cbind(R1R, R2R, R3R, R4R, R5R, R6R, R7R)
+opponents.ratings.cum <- apply(opponents.ratings, MARGIN = 1, FUN = sum)
+# Collect the result of each round - win (W), lose (L), or draw (D).  
+matches.played <- cbind(as.character(chess.master$`Rnd1 Result`), 
+                       as.character(chess.master$`Rnd2 Result`),
+                       as.character(chess.master$`Rnd3 Result`),
+                       as.character(chess.master$`Rnd4 Result`),
+                       as.character(chess.master$`Rnd5 Result`),
+                       as.character(chess.master$`Rnd6 Result`),
+                       as.character(chess.master$`Rnd7 Result`))
+# Calculate the total number of games played (i.e. sum of wins, losses, and draws).  This will serve as the denominator when calculating the average opponent rating.
+matches.played.wld <- rowSums(matches.played == "W") + rowSums(matches.played == "L") + rowSums(matches.played == "D")
+# Calculate the average opponent rating.
+opponents.rating.avg <- opponents.ratings.cum / matches.played.wld
+# Append the columnar vector back to the table a new separate column.
+chess.master <- cbind(chess.master, opponents.rating.avg)
+# Label the new column - would that it were correctly computed...
+colnames(chess.master)[40] <- "Avg Pre-Tourney Opponent Rating"
+```
+
+#### Reorganize table for easier access, pruning surplus columns.
+```{r}
+chess.final.cols <- c("Pairing Number", "Player\'s Name", "Lifetime Points", "Player\'s State", "N:Value", "Tourney Points", "Avg Pre-Tourney Opponent Rating", "Player\'s Pre-Tourney Rating", "Player\'s Post-Tourney Rating", "Rnd1 Opponent", "Rnd1 Outcome", "Rnd1 Result", "Rnd2 Opponent", "Rnd2 Outcome", "Rnd2 Result", "Rnd3 Opponent", "Rnd3 Outcome", "Rnd3 Result", "Rnd4 Opponent", "Rnd4 Outcome", "Rnd4 Result", "Rnd5 Opponent", "Rnd5 Outcome", "Rnd5 Result", "Rnd6 Opponent", "Rnd6 Outcome", "Rnd6 Result", "Rnd7 Opponent", "Rnd7 Outcome", "Rnd7 Result")
+chess.final <- chess.master[chess.final.cols]
+chess.final
+```
+
+#### Configure the output table.
+```{r}
+chess.output.cols <- c("Player\'s Name", "Player\'s State", "Tourney Points", "Player\'s Pre-Tourney Rating", "Avg Pre-Tourney Opponent Rating")
+output.table <- chess.final[chess.output.cols]
+output.table[5] <- as.integer(output.table$`Avg Pre-Tourney Opponent Rating`)
+output.table
+```
