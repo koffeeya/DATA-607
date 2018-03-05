@@ -1,0 +1,181 @@
+---
+title: "Data 607_Week 5_Assignment"
+author: "Jeremy O'Brien"
+date: "February 28, 2018"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# First we'll load a few libraries needed for this exercise.
+
+require(stringr)
+require(tidyr)
+require(dplyr)
+require(ggplot2)
+```
+
+**Create CSV file or MySQL DB that includes all of required info.**
+```{r}
+# As we created CSV file that mirrors the briefing doc, we'll read data from that CSV file into R.
+
+flightstatus.sourcefile <- ("G:/OneDrive/Learning/_CUNY_SPS_MSDS/2018_Spring/DATA 607/Week 5/Assignment/Numbersense.csv")
+fs <- read.csv(flightstatus.sourcefile, header = T, sep= ",", stringsAsFactors = F)
+```
+
+**Prep the table for tidying.**
+```{r}
+# We add meaningful column names where missing in the source table, using rename before we get to tidying.
+
+fs = fs %>% rename("carrier" = "X", "status" = "X.1")
+
+# Attempted to use filter to remove the spacing row without success, so changed tacks  calling na.omit on the status column.  Status column is best bet because:
+# 1) It constitutes a variable
+# 2) Carrier values for several rows are blank as a function of the source table, so they don't constitute a good test
+# 3) There's a possibility that city columns might not be populated, and that those NAs actually constitued 0s
+
+fs <- na.omit(fs, cols = status)
+
+# We remove space in ontime status.
+
+fs$status <- str_replace_all(fs$status, fixed(" "), "")
+
+# We fill in  blank carrier values - next time will take generalizable approach using conditional logic, but for now we'll do a local fix.
+
+fs$carrier[2] <- c("ALASKA")
+fs$carrier[4] <- c("AM WEST")
+```
+
+**Use a wide structure to practice tidying and transformation.**
+```{r}
+# First, we effect a wide structure using gather.
+
+fs.tidy <- gather(fs, "city", "n", 3:7)
+tbl_df(fs.tidy)
+```
+
+**Experimenting a little with tidy-in / tidy-out.**
+```{r}
+# Spread can reverse the tidying operation, returning the previous data frame.
+
+spread(fs.tidy, city, n)
+
+# And it can also cut the data for us in different ways
+
+spread(fs.tidy, status, n)
+spread(fs.tidy, carrier, n)
+```
+
+**Perform analysis to compare arrival delays for two airlines.**
+```{r}
+# First, we'll calculcate total flights by city, irrespective of carrier.  This will give us a lay of the land.
+
+fs.tidy %>% group_by(city) %>% 
+  summarise(total = sum(n)) %>% 
+  arrange(desc(total)) -> flightsbycity
+
+# A bar chart will serve nicely to visualize this.
+
+ggplot(flightsbycity, aes(x = reorder(city, -total), y = total)) + 
+  geom_bar(stat = "identity") + 
+  labs(x = NULL, y = "flights") + 
+  scale_y_continuous(breaks = seq(0,6000,1000))
+
+# Phoenix sees the highest volume overall between these two carriers.  The remaining four cities together have the same volume as Phoenix.
+```
+
+```{r}
+# Next, we'll look at carriers, diving into overall on-time performance by carrier.  We use mutate on the tidily vectorized columns, calculating total flights (total) and on-time performance (OTperf).
+
+fs.tidy %>% spread(status, n) %>% 
+  group_by(carrier) %>% 
+  summarise(delayed = sum(delayed), ontime = sum(ontime)) %>% 
+  mutate(total = delayed + ontime, OTperf = round((ontime / total), 3)) %>% 
+  select(carrier, OTperf) %>% 
+  arrange(desc(OTperf))
+
+# With the five cities pooled, the carriers are pretty close in terms of on-time performance.  AM West is slightly ahead of Alaska.  This is consistent with industry benchmarks - few carriers see better performance than 90% nationwide, and many are in the 80% decile.
+```
+
+```{r}
+# Next, we'll look at on-time performance by city, irrespective of carrier.  This will reveal how cities compare with each other.
+
+fs.tidy %>% spread(status, n) %>% 
+  group_by(city) %>% 
+  summarise(delayed = sum(delayed), ontime = sum(ontime)) %>% 
+  mutate(total = delayed + ontime, OTperf = round((ontime / total), 3)) %>% 
+  select(city, OTperf) %>% 
+  arrange(desc(OTperf)) -> OTPbycity
+
+# Again, a bar chart will serve nicely to visualize this.
+
+ggplot(OTPbycity, aes(x = reorder(city, -OTperf), y = OTperf)) + 
+  geom_bar(stat = "identity") + 
+  labs(x = NULL, y = "% departed on-time")  
+  # scale_y_continuous(breaks = seq(0,6000,1000))
+
+# We might think that higher volume would correlate with poorer on-time performance (i.e. due to logistical complexity or delay cascades); however, the highest trafficked city for these two carriers also has the highest ontime performance.  That said, this data does not seem representative of broader industry patterns - SFO served 55 million passengers in 2017, while Phoenix served 43 million. Between the two carriers, SFO did poorly in terms of on-time departures.  
+
+```
+
+```{r}
+# Given SFO's on-time perforamnce is poor, we'd like to  understand what's driving this.  Alaska is less on-time across the five cities - does SFO's performance have something to do with Alaska?  We'll total traffic and on-time performance by carrier to find out.
+
+fs.tidy %>% spread(status, n) %>% 
+  filter(city %in% c("San.Francisco")) %>% 
+  group_by(carrier) %>%
+  summarise(delayed = sum(delayed), ontime = sum(ontime)) %>% 
+  mutate(total = delayed + ontime, OTperf = round((ontime / total), 3)) %>% 
+  select(carrier, total, OTperf) %>% 
+  arrange(desc(OTperf))
+
+# While Alaska has higher traffic through SFO, it's on-time performance is actually the higher of the two carriers.  AM West has lower throughput but much lower on-time performance.
+```
+
+```{r}  
+# Finally, let's look at the on-time perfomance of each carrier by city.  First, Alaska: 
+
+fs.tidy %>% spread(status, n) %>% 
+  group_by(city) %>% 
+  filter(carrier == "ALASKA") %>% 
+  summarise(delayed = sum(delayed), ontime = sum(ontime)) %>% 
+  mutate(total = delayed + ontime, OTperf = round((ontime / total), 3)) %>% 
+  select(city, total, OTperf) %>% 
+  arrange(desc(OTperf)) -> ALASKA.OTPbycity
+ALASKA.OTPbycity
+
+# For Alaska, Seattle (a high volume city) and San Francisco (in the middle of the pack) are the poorest performers.  As Seattle is a high volume hub for Alaska, Seattle's lower performance drags down Alaska's average.
+```
+
+```{r}  
+# Finally, let's look at the on-time perfomance of each carrier by city.  First, Alaska: 
+
+fs.tidy %>% spread(status, n) %>% 
+  group_by(city) %>% 
+  filter(carrier == "AM WEST") %>% 
+  summarise(delayed = sum(delayed), ontime = sum(ontime)) %>% 
+  mutate(total = delayed + ontime, OTperf = round((ontime / total), 3)) %>% 
+  select(city, total, OTperf) %>% 
+  arrange(desc(OTperf)) -> AMWESTA.OTPbycity
+AMWESTA.OTPbycity
+
+# For AM West, Seattle (the lowest volume city) and San Francisco (middle of the pack) are the poorest performers.  As Phoenix is responsible for the highest flight volume for AM West, Phoenix's higher performance elevates AM West's average in spite of lower perforamnce at other cities.
+```
+
+##### Conclusions
+
+* **For this analysis, we focused on on-time performance rather than just delays.**
+* **Alaska and AM West both perform in the upper portion of the 80% decile.  Alaska's average across the five cities is 89.1%, and AM West's is 86.7%.**
+* **Pheonix is the largest source by far of AM West traffic in the pool of cities.  The analagous city for Alaska is Seattle.**
+* **Phoenix sees the highest on-time performance combined across these carriers; San Francisco, the lowest.**
+* **The enormous volume and strong on-time rate of Phoenix buoys AM West's overall performance.  Conversely, Seattle's large volume and middling on-time rate weighs down Alaska's overall performance.**
+* **It would be interesting to understand if these two carriers are big customers of the non-Phoenix airports in the pool.  If not, they could suffer from reduced clout in  managing gates and runway queues, which in turn could play a part in lower on-time performance.**
+* **It would also be interesting to examine the performance of these airports for all carriers to determine if these volume and performance rankings constitute a trend.  Viewing this by route profile might be worthwhile; both of these carriers are largely domestic operators, and its conceivable that this could have an impact.**
+
+Code should be in R Markdow file posted to rpubs.com
+Include narrative descriptions of data cleanup work, analysis, and conclusions
+
