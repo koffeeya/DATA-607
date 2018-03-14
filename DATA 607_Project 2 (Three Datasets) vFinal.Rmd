@@ -1,0 +1,576 @@
+---
+title: "Data 607_Project 2"
+author: "Jeremy O'Brien"
+date: "March 7, 2018"
+output: html_document
+---
+
+The goal of this assignment is to prepare different datasets for analysis.  For the 3 datasets required, I selected:
+1. US Chronic Disease Idnicators (CDI), c/o Niteen Kumar
+2. US Electric Grid, c/o Rose Koh
+3. World population, c/o Steven Tipton
+
+First we configure our toolset.
+
+```{r setup, echo=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(ggalt)
+library(magrittr)
+library(knitr)
+```
+
+
+
+##### 1. US Chronic Disease Indicators (CDI), c/o Niteen Kumar
+
+As Niteen explained in his post, the chronic disease indicator (CDI) dataset is compiled by the federal goverment of the US.  The chronic disease indicators (CDIs) are a set of surveillance indicators developed by consensus among CDC, the Council of State and Territorial Epidemiologists (CSTE), and the National Association of Chronic Disease Directors (NACDD) and are available on the Internet.  A glossary of the variables and sources is available here: https://www.cdc.gov/mmwr/pdf/rr/rr6401.pdf
+
+The purpose of the analysis is filter the data by categories and indicators to conclude how each state and location are impacted by several types of chronic diseases. That's a lot of ground to cover, so we'll focus this later on in the analysis section.  
+
+
+**Data ingestion:** First, we pull in the data, which is already captured in a CSV.
+
+```{r, echo=TRUE}
+# Niteen collected data on Github so we call it from there.
+
+cdi.sourcefile <- "https://raw.githubusercontent.com/niteen11/MSDS/master/DATA607/Week5/dataset/U.S._Chronic_Disease_Indicators__CDI.csv"
+cdi <- read.csv(cdi.sourcefile, stringsAsFactors = T, row.names = NULL) # read.table defaulted to header = T and sep = "."
+```
+
+
+**Data cleanup:** We begin with some cleanup.
+
+Per https://www.cdc.gov/healthyyouth/data/yrbs/index.htm, the Youth Risk Behavior Surveillance System (YRBSS) monitors six types of health-risk behaviors that contribute to the leading causes of death and disability among youth and adults, including:
+* Behaviors that contribute to unintentional injuries and violence
+* Sexual behaviors related to unintended pregnancy and sexually transmitted diseases, including HIV infection
+* Alcohol and other drug use
+* Tobacco use
+* Unhealthy dietary behaviors
+* Inadequate physical activity
+
+The YRBSS dataset seems like an intersting one to try to analyze.  The first step is to subset the CDI data for YRBSS data alone - doing this up front reduces the size of the dataset (CDI is quite large) and improves performance.
+
+```{r, echo=TRUE}
+# First, we make sure the column values read cleanly.  We coerce Datasource to character to ease subset operation.  Confused as to why this hack is necessary, but could not work with the factor as is.
+
+cdi$Datasource <- as.character(str_trim(cdi$Datasource, side = "both"))
+levels(cdi$Datasource)
+
+# Next, we filter based on the three data sources.  Tried both filter and subset, and they only cooperated after coercing to character.
+
+target.sources <- c("YRBSS")
+cdi.1 <- filter(cdi, Datasource %in% target.sources)
+
+# We clean up a few column names using rename and check the dimensions of the dataframe.
+
+cdi.1 <- cdi.1 %>% rename("Year" = "ï..Year", "Location" = "LocationDesc")
+dim(cdi.1)
+```
+
+Next we check different variables to see if they provide information valuable to our aims  Specifically, we'll look at Year, DataValueUnit, DataValueType, DataValueAlt, DataValueFootnoteSymbol, and DataValueFootnote.
+
+We first look at to see what the YRBSS will provide.
+
+```{r, echo=TRUE}
+table(cdi.1$Year, cdi.1$Datasource) %>% tbl_df
+table(cdi.1$Category, cdi.1$Datasource) %>% tbl_df
+```
+
+YRBSS is all from 2013, and treats alcohol, tobacco, and nutrition / activity / weight.
+
+DataValueUnit provide valuable information, so we won't remove that.  We should de-duplicate up " Number", "cases per million", "per 100,000".
+
+```{r, echo=TRUE}
+levels(cdi.1$DataValueType)%>% tbl_df
+```
+
+DataValueType could provide valuable information, so we won't remove that.  We should de-duplicate up "Age-adjusted Prevalence", Age-adjusted Rate", "Crude rate" down below.
+
+Next, we test how similar DataValue and DataValueAlt are for our data sources.
+
+```{r, echo=TRUE}
+# We coerce DataValueAlt to character and then numeric.  Tried going straight from factor to numeric, but that proved very buggy.
+
+cdi.1$DataValueAlt <- as.numeric(levels(cdi.1$DataValueAlt))[cdi.1$DataValueAlt]
+
+# We subtract DataValue from DataValueAlt and correct for any NAs returned (i.e. setting to 0).
+
+Val.Alt <- cdi.1$DataValue - cdi.1$DataValueAlt
+Val.Alt[is.na(Val.Alt)] <- 0
+Val.Alt[Val.Alt != 0]
+```
+
+For the selected data sources, there are no cases where there are discrepancies between the DataValue and DataValueAlt.  We can remove DataValueAlt.
+
+```{r, echo=TRUE}
+levels(cdi.1$DataValueFootnote) %>% tbl_df
+levels(cdi.1$DataValueFootnoteSymbol) %>% tbl_df
+```
+
+DataValueFootnote and DataValueFootnoteSymbol don't seem to help much for our aims, so we'll add them to the list to remove.  To summarize:
+* We can take LocationAbbr in favor of LocationDesc.  
+* As indicated above, we'll remove DataValueAlt, DataValueFootnote and DataValueFootnoteType.
+* StratificationID is just another take on Gender.  
+* IndicatorID is duplicative with Indicator, and LocationID is duplicative with LocationAbbr.  
+* We won't need geolocation data for state level analysis.
+
+```{r, echo=TRUE}
+# We remove duplicative and non-additive variables.  
+
+cdi.1 <- subset(cdi, select = -c(LocationAbbr, DataValueAlt, DataValueFootnote, DataValueFootnoteSymbol, StratificationID1, IndicatorID, LocationID, GeoLocation))
+
+# We clean up a few duplicative levels in variables using mapvalues from dplyr.  These next steps are hashed out as they have not been successful irrespective of approach ( frustrating, as this seems like it should be elementary).
+
+# unit.old <- c(" Number", "cases per million", "per 100,000")
+# unit.new <- c("Number", "cases per 1,000,000", "per 100,000 residents")
+# cdi.1 %>% mutate(DataValueUnit = replace(DataValueUnit, unit.old, unit.new))
+
+# mapvalues(cdi.1$DataValueUnit, from = c(" Number", "cases per million", "per 100,000"), to = c("Number", "cases per 1,000,000", "per 100,000 residents"))
+# levels(cdi.1$DataValueUnit)
+# mapvalues(cdi.1$DataValueType, from = c("Age-adjusted Prevalence", "Age-adjusted Rate", "Crude rate"), to = C("Age-Adjusted Prevalence", "Age-Adjusted Rate", "Crude Rate"))
+```
+
+
+**Data Melting:** Now we can melt the data and structure it for tidy analysis.
+
+```{r, echo=TRUE}
+# We melt the data into a tidy, "long" structure.  Either because of misconfiguration of the gather operation or large dimensionality of the dataset, I did not find this structure conducive in this case to experimenting with or developing analytical intuitions - quite the contrary.
+
+cdi.tidy <- gather(cdi.1, "key", "n", 3:11)
+tbl_df(cdi.tidy)
+```
+
+**Perform analysis:** Nitteen suggested filtering by category and indicators to conclude that how each state is  impacted by several types of chronic diseases.  As this dataset and its analysis proved something of a time-suck, I cut my losses and move on to the others.  Hope to glean some insights on better approaches from my classmates.
+
+
+
+##### 2. US Electric Grid, c/o Rose Koh
+
+The dataset contains demand, net generation, and total net actual interchange for the entire region in the US on a daily basis.  I believe this was aggregated by the US Energy Information Administration, which collects, analyzes, and disseminates independent and impartial energy information to promote sound policymaking, efficient markets, and public understanding of energy and its interaction with the economy and the environment.  Value in this dataset are in megawatthours, a unit of measure of power about equivalent to the electricity consumption of 330 home during one hour (https://www.cleanenergyauthority.com/solar-energy-resources/what-is-a-megawatt-and-a-megawatt-hour).
+
+
+**Data ingestion:** First, we pull in the data, which is already captured in a CSV.
+
+```{r, echo=TRUE}
+# Rose provided a CSV which we've saved to Github - we call it from there.
+
+electricity.sourcefile <- ("https://raw.githubusercontent.com/JeremyOBrien16/DATA-607/master/us_daily_electric_system_operating_data.csv")
+zap <- read.table(electricity.sourcefile, header = F, sep= ",", fill = T, na.strings = c("", " ", "NA"), stringsAsFactors = F)
+
+```
+
+
+**Data cleanup:** We begin with some cleanup.  Per Rose, we transform and tidy for ease of manipulation of dates, regions, and variables.  The target table configuration includes columns for date, region, and category.
+
+```{r, echo=TRUE}
+# We capture the observations in the dataset, eliminating the blank rows.  An NA in V3 (the third column) is a good indicator of whether there's any information to capture in a given row.
+
+zap.1 <- na.omit(zap, cols = V3)
+
+# We capture the regions in the first column at four-row intervals.  We create a column vector tripling each region (i.e. California X3, then Carolinas X3, etc.) that can be mapped to each of the three variables (demand, net generation, total net actual interchange).
+
+region.rows <- c(seq(from = 6, to = nrow(zap), by = 4))
+region.name <- zap[region.rows, 1]
+region.1 <- rep(region.name, each = 3)
+
+# As the first several rows of the soure file did not include headers, we read the data without any.  Now that we've purged the noisy labels we make the new first row column headers.
+
+colnames(zap.1) = zap.1[1, ]
+zap.1 <- zap.1[-1, ]
+
+# We concatenate the region vector we created with the observations.
+
+zap.2 <- cbind(region.1, zap.1)
+
+# We clean up a few column headers, renaming them so they're easy to call for analysis.
+
+zap.2 <- zap.2 %>% rename("region" = "region.1", "cat" = "megawatthours")
+
+# We replace types with less wordy labels; again, so they're easy to call.
+
+zap.2$cat <- zap.2$cat %>% str_replace_all("Demand", "dem") %>% 
+  str_replace_all("Net generation", "gen") %>% 
+  str_replace_all("Total net actual interchange", "net")
+
+# We adjust the data type for category.  We'll convert days from characters to dates and amounts from character to numerics after melting the dataset, as this is a simpler operation on a single column.
+
+zap.2$cat <- as.factor(zap.2$cat)
+```
+
+
+**Data Melting:** Now we can melt the data and structure it for tidy analysis.
+
+```{r, echo=TRUE}
+# We melt the data into a tidy structure.
+
+zap.tidy <- gather(zap.2, "date", "amount", 3:33)
+
+# Finally, we convert day column data type to date and amount column data type to numeric.
+
+zap.tidy$date <- as.Date(zap.tidy$date, "%m/%d/%Y")
+zap.tidy$amount <- as.numeric(zap.tidy$amount)
+
+# We check the setup - as expected.
+
+head(tbl_df(zap.tidy), 6)
+```
+
+
+**Perform analysis:** Rose suggested producing the following cuts:
+*  Daily demand by region
+*  Daily net generation by region
+*  Daily total net actual interchange
+*  Overall gap / surplus over the days captured in the dataset (slighlty adapted, same intent)
+
+First, we leverage our tidied data to output daily demand by region.
+
+```{r, echo=TRUE}
+zap.tidy %>%
+  filter(cat %in% c("dem")) %>%
+  group_by(region) %>% 
+  separate(date, c("year", "month", "day"), sep = "-") %>% 
+  spread(day, amount) %>%
+  group_by(region) %>% 
+  select(-c(cat, year, month))
+```
+
+The demand trends are highest in the Mid-Atlantic, Midwest, Texas, Northwest, and Southeast.
+
+Next, we implement the same workflow to output daily generation by region.
+
+```{r}
+zap.tidy %>%
+  filter(cat %in% c("gen")) %>%
+  group_by(region) %>% 
+  separate(date, c("year", "month", "day"), sep = "-") %>% 
+  spread(day, amount) %>% 
+  select(-c(cat, year, month)) %>% 
+  arrange(region)
+```
+
+The generation trends are highest in many of the same places - Mid-Atlantic, Midwest, Texas, Northwest, and Southeast.  This means the regions with the biggest demand meet alot of it with their own production.  A look at net actual interchange will reveal whether any of these lead to surpluses; as well as a where demand is not met by regional generation.
+
+We output daily total net actual interchange by region.
+
+```{r, echo=TRUE}
+zap.tidy %>%
+  filter(cat %in% c("net")) %>%
+  group_by(region) %>% 
+  separate(date, c("year", "month", "day"), sep = "-") %>% 
+  spread(day, amount) %>% 
+  select(-c(cat, year, month)) %>% 
+  arrange(region)
+```
+
+Parity between demand / generation for regions on the large end of those scales means those regions are not prominent in terms of net interchange.  Instead, the biggest shortfalls are in California, New York, New England, and the Carolinas.  These are not the top users of power, but neither do they generate sufficiently to meet their own needs.
+
+We finalize our analysis with a look at overall gap / surplus over January (the period captured in the dataset).
+
+```{r, echo=TRUE}
+zap.tidy %>% 
+  spread(cat, amount) %>%
+  group_by(region) %>% 
+  summarise(net.avg.daily = round(mean(net), 1)) %>%
+  select(region, net.avg.daily) %>% 
+  arrange(desc(net.avg.daily)) %>% 
+  ggplot(aes(x = region, y = net.avg.daily, label = round(net.avg.daily))) +
+  geom_bar(aes(fill = net.avg.daily > 0), stat = "identity") +
+  scale_fill_manual(guide = F, breaks = c(TRUE, FALSE), values = c("red", "gray")) +
+  geom_text(size = 3, position = position_stack(vjust = .5)) +
+  coord_flip()
+```
+
+Based on this view of net demand / generation over the month of January, 2018, California is far and away the largest energy sink and the Northwest is a proportionately large energy source.  The Mid-Atlantic and Southwest are also clearly net producers, while New York and New England are significant net users, followed by the Midwest and Carolinas. 
+
+As Rose observed, as a follow up we could isolate the day on which the gap is largest (i.e. peak grid load) and try to pull in finer time grain to identify when during the day there is the highest likelihood of brownout.
+
+
+**Conclusions:**
+* Demand is highest in the Mid-Atlantic, Midwest, Texas, Northwest, and Southeast.
+* Supply is highest in the same places.
+* The biggest shortfalls are in California, New York, New England, and the Carolinas.
+* California's defecit dwarfs all others combined, but is about the same scale as the Northwest's surplus.
+
+
+
+##### 3. World population, c/o Steven Tipton
+
+As Steve described it, this is a simple yet interesting population data set by country from 1980 to 2010.  The values are stored with one row per country and population is per year in columns, a form similar to Hadley Wickham's untidy song rankings data set.  The dataset was compiled by the Energy Information Administration for the National Renewable Energy Laboratory, and can be found here: https://catalog.data.gov/dataset/population-by-country-1980-2010.  Source information was somewhat opaque, but I believe population estimates come from the World Bank.
+
+
+**Data ingestion:** First, we pull in the data, which is already captured in a CSV.
+
+```{r, echo=TRUE}
+# Steven provided a CSV which we've saved to Github - we call it from there.
+
+worldpop.sourcefile <- ("https://raw.githubusercontent.com/JeremyOBrien16/DATA-607/master/populationbycountry19802010millions.csv")
+wp <- read.csv(worldpop.sourcefile, header = T, sep= ",", stringsAsFactors = F)
+```
+
+
+**Data cleanup:** We begin with some cleanup.  As Steven observed, continents like Eurasia, North America, Antarctica, etc. - regional geographic groupings, really - are mixed in with countries.  We should remove these from the countries column and capture information regional / grouping hierarchy in a separately.
+* North America is found in row 1, and should group rows 2:7
+* Central & South America is found in row 8, and should group rows 10:53
+* Antarctica is found in row 9 (but is NA for every year)
+* Europe is found in row 54, and should group rows 55:95
+* Eurasia is found in row 96, and should group rows 97:112
+* Middle East is found in row 113, and should group rows 114:127
+* Africa is found in row 128, and should group rows 129:183
+* Asia & Oceania is found in row 184, and should group rows 185:231
+* World is found in row 232, and is it's own thang.
+
+We extract region totals from the observations and label each country with its continent (cont) in a new column.
+
+```{r, echo=TRUE}
+# First, we create a labeling vector for each continent that has the same length as the number of countries (i.e. rows) on that continent. We exclude world, as it's just a supergrouping of all continents.  the row numbers come from the bulleted above.
+
+# We could loop this over a vector with cont names
+# i increments until the total length of the name vector is reached (8)
+# the function called is rep
+# the first argument is the sequenced value in the name vector
+# input the row numbers for length.out based on a str_detect of first and last row number for the original names, subtracting 1
+# assign to vector for each named by cont
+
+NAm <- rep("NAm", length.out = (7-(2-1)))
+CSAm <- rep("CSAm", length.out = (53-(10-1)))
+Ant <- c("Ant")
+Eur <- rep("Eur", length.out = (95-(55-1)))
+EurAs <- rep("EurAs", length.out = (112-(97-1))) 
+ME <- rep("ME", length.out = (127-(114-1)))
+Afr <- rep("Afr", length.out = (183-(129-1)))
+AsOc <- rep("AsOc", length.out = (231-(185-1)))
+
+# We concatenate the continent labeling vectors into a single vector.
+
+cont <- c(NAm, CSAm, Ant, Eur, EurAs, ME, Afr, AsOc)
+
+# We eliminate the continent total rows from the observations (excluding world).
+
+country.rows <- c(2:7, 10:53, 9, 55:95, 97:112, 114:127, 129:184, 186:231)
+wp.obs <- wp[country.rows,]
+
+# We confirm the continent labeling vector and observations line up, comparing length of cont vector with number of rows of wp.obs dataframe.
+
+(nrow(wp.obs) - length(cont)) == 0
+
+# We concatenate the continent vector with the observations.
+
+wp.1 <- cbind(cont, wp.obs)
+
+# Relabel columns meaningfully, removing X from the start of each header name
+
+wp.1 <- wp.1 %>% rename("Xcont" = "cont", "Xcountry" = "X")
+colnames(wp.1) <- colnames(wp.1) %>% 
+  unlist(colnames(wp.1)) %>%
+  str_sub(2, length(colnames(wp.1)))
+```
+
+
+**Data Melting:** Now we can melt the data and structure it for tidy analysis.
+
+Per Steven, we should create a table with three columns: country, year, and population (pop); to which we've enriched with continent (cont).
+
+```{r, echo=TRUE}
+# Melt dataset to country, year, and population
+
+wp.tidy <- gather(wp.1, key = "year", value = "pop", 3:33)
+head(tbl_df(wp.tidy))
+```
+
+
+**Perform analysis:** Steven suggested a few interesting avenues of analysis.
+* Explore the differences between "NA" and "--" in the dataset.  
+* At first glance, the "NA" seems to mean "0" (given that it's used for Antarctica), but it's also seen with Wake Island and the Hawaiian trade zone (which flips from "NA" to "--" in 1987).  
+* The dashes appear to be used for years when countries did not exist (e.g., after East Germany and West Germany reunite, their separate listings have dashes, and Germany goes from dashes to values).  
+* Study changes in population in different areas of the world.
+
+We look into the NAs first.
+
+```{r, echo=TRUE}
+# We compile rows marked NA by country and year.
+
+wp.tidy %>% 
+  group_by(country) %>% 
+  filter(is.na(pop)) %>%
+  summarise(total.NA = n_distinct(year), first.NA = first(year), last.NA = last(year)) %>% 
+  select(country, total.NA, first.NA, last.NA) %>%
+  arrange(desc(total.NA)) %>% 
+  tbl_df()
+```
+
+Three countries have NA - Antarctica and Wake Island span the entire 31 year period, but Hawaii is only NA between 1980 and 1986. Neither Antarctica nor Wake Island have indigenous populations, so in that case we can interpret NA as 0.  A web search did not suggest meaningful reasons for why Hawaii's population would have been marked NA prior to 1987.
+
+We look into the dashes next.
+
+```{r, echo=TRUE}
+# We compile rose marked with dashes by country and year.
+
+wp.tidy %>% 
+  group_by(country) %>% 
+  filter(pop == "--") %>% 
+  summarise(total.dash = n_distinct(year), first.dash = first(year), last.dash = last(year)) %>%
+  select(country, total.dash, first.dash, last.dash) %>% 
+  arrange(desc(total.dash)) %>% 
+  tbl_df()
+```
+
+The following helps to explain why country-level reporting changed based on the years in question:
+
+With the dissolution of the USSR former Soviet Socialist Republics: 
+* The following gained independence and began reporting separately: include Armenia, Azerbaijan, Belarus, Estonia, Georgia, Kazakhstan, Kyrgyzstan, Latvia, Lithuania, Moldova, Russia, Tajikstan, Turkmenistan, Ukraine, and Uzbekistan.
+* East Germany and West Germany united to become Germany in 1991.
+* Czech Republic and Slovakia united to become Czechoslavakia in 1993.
+
+With the dissolution of Socialist Federal Republic of Yugoslavia in the late 1980s:
+* Croatia, Slovenia, and Macedonia left the SFRY in 1991 and began reporting independently.
+* Bosnia-Herzegovinia proclaimed independence in 1992 and began reporting independently.
+* Yugoslavia comprised Serbia and Montenegro from 1992; Montenegro reported independently from 2005, and Serbia from 2006.
+
+In the Middle East and Africa:
+* Palestine held a general election in 1996 - it's possible that population censuses were conducted to facilitate this purpose.
+* Eritrea declared independence from Ethiopia in a 1993 referendum
+* Namibia gained independence from South Africa in 1990.
+
+In Asia:
+* Timor-Leste gained independence from Indonesia in 2002.
+
+In the Americas:
+* It's not clear why Hawaii in NA until 1986 and "--" thereafter.
+* Aruba seceded from Netherland Antilles and gained independence in 1996.
+
+Now that we've explored the NAs and dashes and have investigated the reasons for the missing data, we look shifts in continental populations.  First, some data refinement.
+
+```{r, echo=TRUE}
+# With the NAs / dashes behind us, we can convert pop and years to numeric values.
+
+wp.calc <- wp.tidy 
+wp.calc$pop <- as.numeric(wp.calc$pop)
+wp.calc$year <- as.numeric(wp.calc$year)
+
+# As Antarctica has no permanent population, we convert its NAs to 0 and confirm.
+
+wp.calc$pop[wp.calc$cont == "Ant"] <- 0
+wp.calc %>% 
+  filter(cont %in% c("Ant")) %>% 
+  select(country, year, pop) %>% 
+  arrange(year)
+```
+
+
+Before examining  specific regions / countries and exploring how political changes affected their populations, we set a little high-level context.
+
+```{r}
+# We examine population growth between 1980 and 2010.  This does not account for the impact of unreported countries (NAs) in either year bracketing the analysis.
+
+wp.calc %>% 
+  filter(year %in% c("1980", "2010")) %>% 
+  spread(year, pop) %>% 
+  group_by(cont) %>%
+  summarise(start = sum(`1980`, na.rm = T), end = sum(`2010`, na.rm = T), change.net = end - start, RoG = change.net / start, expon = (1 / (2010 - 1992)), CAGR = (end / start)^(expon) - 1) %>% 
+  select(cont, start, end, change.net, RoG, CAGR) %>% 
+  arrange(desc(RoG)) %>% 
+  tbl_df
+```
+
+In terms of rate of population growth, the Middle East increased by 126.4% (for a cumulative average growth rate of 4.6%) adding 118 million people over the 30 year period.  While that sounds impressive, it pales in terms of tonnage: over the same period of time, North America grew by 136 million people, Central / South America by 187 million, Africa by 532 million peopl, and Asia / Oceania by...1.3 billion people!
+
+We look at how the populations of former Soviet states fared after they become independent countries in 1992.
+
+```{r}
+# We define the former Soviet bloc, visualize growth from 1992 to 2010, and calculate overall and annualized growth rates. 
+
+soviet <- c("Armenia", "Belarus", "Estonia", "Georgia", "Kazakhstan", "Kyrgyzstan", "Latvia", "Lithuania", "Moldova", "Russia", "Tajikstan", "Turkmenistan", "Ukraine", "Uzbekistan")
+
+wp.calc %>% 
+  filter(country %in% soviet & year >= 1992) %>%
+  select(country, year, pop) %>% 
+  ggplot(aes(x = year, y= pop, group = country, colour = country)) +
+  geom_line() +
+  geom_point(size = 1.5) +
+    labs(title = "Population of Ex-SSR States",
+       subtitle = "1992-2010") +
+  scale_x_continuous(breaks = seq(from = 1990, to = 2010, by = 5))
+
+wp.calc %>% 
+  filter(country %in% soviet) %>% 
+  group_by(country) %>% 
+  spread(year, pop) %>% 
+  summarise(start = sum(`1992`, na.rm = T), end = sum(`2010`, na.rm = T), change.net = end - start, RoG = change.net / start, expon = (1 / (2010 - 1992)), CAGR = (end / start)^(expon) - 1) %>% 
+  select(country, start, end, change.net, RoG, CAGR) %>% 
+  arrange(desc(RoG)) %>% 
+  tbl_df()
+```
+
+The Central Asian former SSRs - save Kazakhstan - all saw annualized growth averaging over 1% - all other former Soviet bloc countries shrunk in size.  The most dramatic percentage declines are seen in Armenia (12.2%), Ukraine (12.4%), Georgia (14.1%), Latvia (15.2%), and Estonia (15.5%).  The largest absolute population decreases are found in the biggest states - Russia lost over 9 million people, and the Ukraine nearly 6.5 million.  That's remarkable, and attributed to lower birth rates and abnormally high death rates.
+
+Next, we try to find the impact of the drug war on Central American populations over the last decade.  The whole region has been destablized, but we'll focus a few countries directly impacted by changes in drug trade - Colombia, Peru, Guatemala, and Mexico.
+
+```{r}  
+# We define the four countries of interest, visualize growth over the last decade, and calculate overall and annualized growth rates.
+
+drugs <- c("Colombia", "Peru", "Guatemala", "Mexico")
+
+wp.calc %>% 
+  filter(country %in% drugs & year >= 2000) %>%
+  select(country, year, pop) %>% 
+  ggplot(aes(x = year, y= pop, group = country, colour = country)) +
+  geom_line() +
+  geom_point(size = 1.5) +
+    labs(title = "Population of Central American States Affected by the Drug War",
+       subtitle = "2000-2010") +
+  scale_x_continuous(breaks = seq(from = 2000, to = 2010, by = 1)) +
+  scale_y_continuous(breaks = seq(from = 0, to = 125, by = 25)) +
+  expand_limits(y = 0)
+
+wp.calc %>% 
+  filter(country %in% drugs) %>% 
+  group_by(country) %>% 
+  spread(year, pop) %>% 
+  summarise(start = sum(`2000`, na.rm = T), end = sum(`2010`, na.rm = T), change.net = end - start, RoG = change.net / start, expon = (1 / (2010 - 2000)), CAGR = (end / start)^(expon) - 1) %>% 
+  select(country, start, end, change.net, RoG, CAGR) %>% 
+  arrange(desc(RoG)) %>% 
+  tbl_df()
+```
+
+It's difficult to observe the impact in country populations trended over 30 years.  We likely need to explore mortality rates and dive into causes of death (violent, as well as the general health impact of conflict and criminality), with particular attention paid to different age strata.
+
+Lastly, we look at China and India, population giants who responsible for a considerable portion of global growth in human headcount.
+
+```{r}  
+# We examine population growth in India and China - first graphically, and then by calculating growth rates over the three decades and the equivalent CAGR.
+
+Sin.Ind <- c("China", "India")
+
+wp.calc %>% 
+  filter(country %in% Sin.Ind) %>% 
+  select(country, year, pop) %>% 
+  ggplot(aes(x = year, y= pop, group = country, colour = country)) +
+  geom_line() +
+  geom_point(size = 1.5) +
+    labs(title = "Population of China and India",
+       subtitle = "1980-2010") +
+  scale_x_continuous(breaks = seq(from = 1980, to = 2010, by = 5)) +
+  scale_y_continuous(breaks = seq(from = 0, to = 1500, by = 250)) +
+  expand_limits(y = 0)
+
+wp.calc %>% 
+  filter(country %in% Sin.Ind) %>% 
+  spread(year, pop) %>% 
+  group_by(country) %>% 
+  summarise(start = sum(`1980`, na.rm = T), end = sum(`2010`, na.rm = T), change.net = end - start, RoG = change.net / start, expon = (1 / (2010 - 1980)), CAGR = (end / start)^(expon) - 1) %>% 
+  select(country, start, end, change.net, RoG, CAGR) %>% 
+  arrange(desc(CAGR)) %>% 
+  tbl_df
+```
+
+Both countries evidence a smooth, linear growth rate responsible for their dramatic stature viz. total world population.  Health infrastructure improvements combined with the high birth rates that result from traditions of early marriage and preference for male children are reponsbile for this growth.  Compared with India, China's efforts to manage population growth (i.e. it's  one-child policy) start to demonstrate a change in slope in the early to mid-90s.
+
+**Conclusions:**
+* The Middle East grew fastest over 1980-2010, but it's smaller population base means other regions grew more in absolute terms - with Asia in the lead having added 1.3 billion people.
+* All former SSRs save Turkmenistan, Kyrgyzstan, and Uzbekistan shrunk in size since the dissolution of the USSR.  This is mor pronounced in Russia and the Ukraine.
+* The impact of the drug war on populations in Colombia, Peru, Guatemala, and Mexico is not evident in these statistics.
+* While China and India are the world's giants, China's one-child policy has served as a governer on its population growth.
