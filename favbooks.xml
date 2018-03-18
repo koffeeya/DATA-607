@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<favbooks>
+	<book>
+		<author>Charles Stross</author>
+		<title>Palimpsest</title>
+		<genre>Science Fiction</genre>
+		<publisher_name>Subterranean</publisher_name>
+		<price>38.88</price>
+		<publication_year>2011</publication_year>
+		<review>Welcome to the Stasis, the clandestine, near-omnipotent organization</review>
+		<pagenums>136</pagenums>
+	</book>
+	<book>
+		<author>Naomi Duguid, Jeffrey Alford</author>
+		<title>Beyond the Great Wall</title>
+		<genre>Cooking</genre>
+		<publisher_name>Artisan</publisher_name>
+		<price>33.88</price>
+		<publication_year>2008</publication_year>
+		<review>Bring home the enticing flavors of the outlying areas of China</review>
+		<pagenums>376</pagenums>
+	</book>
+	<book>
+		<author>Norman Davies</author>
+		<title>Vanished Kingdoms: The Rise and Fall of States and Nations</title>
+		<genre>History</genre>
+		<publisher_name>Viking</publisher_name>
+		<price>40.00</price>
+		<publication_year>2012</publication_year>
+		<review>A dozen-plus examples from European history constitute this ruminative disquisition of the impermanence of polities</review>
+		<pagenums>848</pagenums>
+	</book>
+</favbooks>
