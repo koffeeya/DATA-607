@@ -1,0 +1,115 @@
+---
+title: "DATA 607_ Week9_Homework (Web APIs)"
+author: "Jeremy O'Brien"
+date: "March 26, 2018"
+output:
+  html_document:
+    theme: yeti
+    highlight: haddock
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r setup, include = F}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(httr)
+# library(XML)
+# library(RCurl)
+library(stringr)
+library(knitr)
+library(kableExtra)
+library(jsonlite)
+
+options(knitr.table.format = "html")
+
+setwd("G:/OneDrive/Learning/_CUNY_SPS_MSDS/2018_Spring/DATA 607/Week 9/Homework 9")
+```
+
+<hr>
+
+# **1. Call JSON data from NYT API**
+
+First we'll test out HTTR on the NYT Archive API
+```{r}
+# Input the key supplied by the NYT API service
+key.arch <- "dc85bc8c234047b6a4c349b2f4ba7696"
+
+# Use January, 1900
+yr.arch <- 1900
+mn.arch <- 1
+
+# Assemble the API call - hashed verbose() for easy running
+api.arch <- paste0("http://api.nytimes.com/svc/archive/v1/", yr.arch, "/", mn.arch, ".json?api-key=", key.arch)
+nyt.arch.test1 <- GET(api.arch)
+
+# Confirm the status of the extraction operation
+http_status(nyt.arch.test1)
+# warn_for_status(r$status_code)
+
+# Access headers from the data extrqacted in the test - hashed for easy running
+# headers(nyt.arch.test1)
+
+# Access the content parsed - hashed for easy running.
+# content(nyt.arch.test1, "parse")
+```
+
+Now we'll try extracting data from the Times Newsire API, which allows more fine-tuning of the call.
+```{r}
+# For the Newsire API, URI structure depends on whether call is for a specific news item or a set of recent items.
+# Specific new item: http://api.nytimes.com/svc/news/{version}/content[.response-format]?url={item-url}&api-key={your-API-key}
+# Set of recent news items: http://api.nytimes.com/svc/news/{version}/content/{source}/{section}[/time-period][.response-format]?api-key={your-API-key}
+
+# We'll use the latter for this exercise. 
+
+# Input the {key} supplied by the NYT API service
+key.wire <- "dc85bc8c234047b6a4c349b2f4ba7696"
+
+# API call syntax includes {version}, which we'll default to v3
+vers.wire <- "v3"
+
+# Also enables specification of {source} - iht, nyt, all
+src.wire <- "all"
+
+# Also enables specification of {section} - arts, business, world, u.s., sports, etc.
+sect.wire <- "arts"
+
+# Specify time by indicating cutoff for how recently published (in hours)
+time.wire <- "all"
+  
+# json or jsonp
+rf.wire <- ".json"
+
+# Also enables specification of number of news items
+items.wire <- "10"
+  
+# Build the Times Newsire API
+api.wire <- paste0("http://api.nytimes.com/svc/news/", vers.wire, "/content/", src.wire, "/", sect.wire, "/", time.wire, rf.wire, "?limit=", items.wire, "&api-key=", key.wire)
+```
+
+<hr>
+
+# **2. Read JSON data into R data frame**
+```{r}
+# Extract from JSON
+tech <- fromJSON(api.wire)
+
+# Convert to a data frame, extracting paramaters to summarize
+tech.df <- data.frame(
+  article <- tech$results$title,
+  date <- str_extract(tech$results$first_published_date, ".+(?=T)"), # Pull out the year, month, and date prior to the "T" marker
+  time <- str_extract(tech$results$first_published_date, "(?<=T).+"), # Pull ou the time and time zone following the "T" marker
+  abstract <- paste0((str_extract(tech$results$abstract, "^.{100}")), "..."), # Pull out the first 100 characters of the abstract and paste on an ellipsis
+  url <- tech$results$url,
+  byline <- tech$results$byline
+)
+
+# Label the columns of the data frame for legibility
+colnames(tech.df) <- c("article", "date", "time", "abstract", "url", "byline")
+
+# Visualize the result
+kable(tech.df, "html")
+```
