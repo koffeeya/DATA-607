@@ -1,0 +1,111 @@
+---
+title: "Untitled"
+author: "Kavya Beheraj"
+date: "April 28, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(devtools)
+# devtools::install_github("nicolewhite/RNeo4j")
+# add conditional if preinstalled
+library(RNeo4j)
+```
+
+```{r}
+
+# Clean up environment
+
+rm(list = ls())
+
+```
+
+```{r}
+
+# Read in the ratings dataframe and rename the columns
+
+u1 <- "https://static.turi.com/datasets/millionsong/10000.txt"
+
+ratings <- as.data.frame(read.table(u1, header = F, stringsAsFactors = F))
+
+names(ratings) <- c("user_id", "song_id", "listen_count")
+
+
+# Read in the metadata dataframe
+
+u2 <- "https://static.turi.com/datasets/millionsong/song_data.csv"
+
+metadata <- as.data.frame(read.csv(u2, header = T, sep = ",", stringsAsFactors = F))
+
+```
+
+```{r}
+
+# Join data by song ID
+joined <- inner_join(ratings, metadata, by = "song_id")
+
+```
+
+```{r}
+
+# Group and summarize joined dataframe by user ID
+grouped_id <- joined %>%
+  select(user_id, listen_count) %>%
+  group_by(user_id) %>%
+  summarise(number_songs = n(), mean_listen_count = mean(listen_count), sum_listen_count = sum(listen_count))
+
+```
+
+```{r}
+
+# ABOUT THE DATA
+
+# Number of unique user IDs
+nrow(grouped_id)
+
+# We see a long tail when we plot the average number of songs that each user listened to.
+qplot(grouped_id$mean_listen_count)
+
+```
+
+```{r}
+
+# Take a random sample of 100 user IDs
+random <- sample(grouped_id$user_id, 100, replace = F)
+
+
+# Subset the full dataframe by the 100 random user IDs.
+sampled <- subset(joined, joined$user_id %in% random)
+
+
+# Examine the number of songs and users included in the sample
+nrow(sampled)
+n_distinct(sampled$user_id)
+
+```
+
+
+
+```{r}
+
+graph = startGraph("http://localhost:7474/db/data/", username="neo4j", password="7u4!9jHBzrJA9C$@")
+
+```
+
+
+```{r}
+
+query = "
+
+CREATE ( user:  )
+
+"
+
+```
