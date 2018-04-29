@@ -67,8 +67,18 @@ grouped_id <- joined %>%
 
 # ABOUT THE DATA
 
-# Number of unique user IDs
+# Number of unique user IDs.  The DB has includes 76,353 unique users.
 nrow(grouped_id)
+
+# Some quick summary statistics:
+# Each of those users has listened to at least 1 song (obvious, but a good sense check).  
+# On average, users have listened to 3.183 songs.  
+# The most songs is 192.
+summary(grouped_id$mean_listen_count)
+
+# Calculate number of users who have listened to more than X number of songs.
+# And / or look into some other measure of sparsity.
+
 
 # We see a long tail when we plot the average number of songs that each user listened to.
 qplot(grouped_id$mean_listen_count)
